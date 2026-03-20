@@ -10,8 +10,8 @@ export const analyzeRepo = async (repoUrl: string) => {
 };
 
 export const analyzePR = async (prUrl: string) => {
-  const response = await axios.get(`${API_URL}/analyze-pr`, {
-    params: { pr_url: prUrl },
+  const response = await axios.post(`${API_URL}/analyze-pr`, {
+    pr_url: prUrl,
   });
   return response.data;
 };

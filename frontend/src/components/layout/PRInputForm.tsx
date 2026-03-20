@@ -42,21 +42,26 @@ export default function PRInputForm() {
   }, [loading]);
 
   const handleAnalyzePR = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    setError("");
-    setResult(null);
+      e.preventDefault();
+      setLoading(true);
+      setError("");
+      setResult(null);
 
-    try {
-      const response = await fetch(`${API_URL}/analyze-pr?pr_url=${encodeURIComponent(prUrl)}`);
-      if (!response.ok) throw new Error("Could not access Pull Request. Ensure it is a public repository.");
-      const data = await response.json();
-      setResult(data);
-    } catch (err: any) {
-      setError(err.message || "An error occurred");
-    } finally {
-      setLoading(false);
-    }
+      try {
+        const response = await fetch(`${API_URL}/analyze-pr?pr_url=${encodeURIComponent(prUrl)}`);
+        
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(errorData.detail || "Server Error");
+        }
+        
+        const data = await response.json();
+        setResult(data); // This data now matches the AnalysisResult interface
+      } catch (err: any) {
+        setError(err.message || "An error occurred");
+      } finally {
+        setLoading(false);
+      }
   };
 
   return (

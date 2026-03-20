@@ -8,6 +8,30 @@ PATTERNS = {
     "Generic Secret": r"(?i)(password|secret|api_key|passwd|auth_token)\s*[:=]\s*['\"](?![^'\"]*example)[^'\"]{8,}['\"]"
 }
 
+def scan_single_file_secrets(repo_path, rel_path):
+    findings = []
+    full_path = os.path.join(repo_path, rel_path)
+    
+    if not os.path.exists(full_path):
+        return []
+
+    try:
+        with open(full_path, "r", errors="ignore") as file:
+            content = file.read()
+            for label, pattern in PATTERNS.items():
+                for match in re.finditer(pattern, content):
+                    line_no = content.count('\n', 0, match.start()) + 1
+                    findings.append({
+                        "file": rel_path,
+                        "line": line_no,
+                        "message": f"Potential {label} exposed.",
+                        "severity": "CRITICAL",
+                        "tool": "secret-scanner"
+                    })
+    except Exception:
+        pass
+    return findings
+
 def scan_secrets(path):
     findings = []
     for root, _, files in os.walk(path):

@@ -1,8 +1,8 @@
 import os
-from app.services.semgrep_service import run_semgrep
-from app.services.ast_service import scan_python_ast
-from app.services.secret_service import scan_secrets
-from app.services.risk_service import infer_risk
+from app.services.existing.semgrep_service import run_semgrep, run_semgrep_targeted
+from app.services.existing.ast_service import scan_python_ast, scan_single_file_ast
+from app.services.existing.secret_service import scan_secrets, scan_single_file_secrets
+from app.services.existing.risk_service import infer_risk
 
 def count_files(path):
     total = 0
@@ -11,6 +11,27 @@ def count_files(path):
             continue
         total += len(files)
     return total
+
+def scan_pr_changes(repo_path: str, changed_files: list):
+    all_issues = []
+
+    # 1. Run Semgrep only on the changed files
+    semgrep_findings = run_semgrep_targeted(repo_path, changed_files)
+    all_issues.extend(semgrep_findings)
+
+    # 2. Run targeted AST and Secret scans
+    for rel_path in changed_files:
+        # Note: scan_single_file_ast usually filters for .py files internally
+        ast_issues = scan_single_file_ast(repo_path, rel_path)
+        all_issues.extend(ast_issues)
+        
+        secret_issues = scan_single_file_secrets(repo_path, rel_path)
+        all_issues.extend(secret_issues)
+
+    return {
+        "issues": all_issues,
+        "total_files": len(changed_files)
+    }
 
 def scan_repository(path):
     issues = []

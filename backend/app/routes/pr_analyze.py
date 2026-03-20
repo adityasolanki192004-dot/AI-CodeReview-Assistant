@@ -1,59 +1,56 @@
-from fastapi import APIRouter, Query, HTTPException
-import requests
-import tempfile
+from fastapi import APIRouter, HTTPException
 import os
-from app.services.scan_service import scan_repository
+import re
+from app.services.pipeline_service import run_pipeline
+from app.services.existing.scan_service import scan_pr_changes
 
 router = APIRouter()
+GITHUB_TOKEN = os.getenv("GITHUB_TOKEN", "")
+
+def parse_github_url(url: str):
+    pattern = r"github\.com/([^/]+)/([^/]+)/pull/(\d+)"
+    match = re.search(pattern, url)
+    if not match:
+        raise ValueError("Invalid GitHub PR URL.")
+    return match.group(1), match.group(2), match.group(3)
 
 @router.get("/analyze-pr")
-def analyze_pr(pr_url: str = Query(...)):
+def analyze_pr(pr_url: str):
+    try:
+        owner, repo_name, pr_number = parse_github_url(pr_url)
+        repo_slug = f"{owner}/{repo_name}"
+        repo_full_url = f"https://github.com/{repo_slug}"
 
-    parts = pr_url.rstrip("/").split("/")
-    if len(parts) < 7:
-        raise HTTPException(status_code=400, detail="Invalid PR URL")
+        # Step 1: Clone and Build Context
+        pipeline_data = run_pipeline(repo_full_url, repo_slug, pr_number, GITHUB_TOKEN)
+        
+        # Step 2: Extract changed files from the parsed diff
+        # pipeline_data['context']['diff'] is the dict from parse_diff
+        context = pipeline_data.get("context", {})
+        diff_dict = context.get("diff", {})
+        changed_files = list(diff_dict.keys())
 
-    owner, repo, pr_number = parts[-4], parts[-3], parts[-1]
+        if not changed_files:
+            return {
+                "status": "success",
+                "message": "No files were detected in the PR diff.",
+                "issues": [],
+                "total_files_found": 0,
+                "total_files_scanned": 0
+            }
 
-    api_url = f"https://api.github.com/repos/{owner}/{repo}/pulls/{pr_number}/files"
+        # Step 3: Run targeted scans
+        repo_path = pipeline_data["repo_path"]
+        scan_results = scan_pr_changes(repo_path, changed_files)
 
-    GITHUB_TOKEN = os.getenv("GITHUB_TOKEN")
+        return {
+            "status": "success",
+            "metadata": pipeline_data.get("metadata"),
+            "issues": scan_results["issues"],
+            "total_files_found": len(changed_files),
+            "total_files_scanned": len(changed_files)
+        }
 
-    headers = {
-        "Accept": "application/vnd.github+json",
-        "User-Agent": "AI-CodeReview-Assistant"
-    }
-
-    if GITHUB_TOKEN:
-        headers["Authorization"] = f"Bearer {GITHUB_TOKEN}"
-
-    r = requests.get(api_url, headers=headers, timeout=15)
-
-    if r.status_code != 200:
-        raise HTTPException(status_code=r.status_code, detail=r.text)
-
-    files = r.json()
-
-    if not isinstance(files, list):
-        raise HTTPException(status_code=500, detail="Unexpected GitHub API response")
-
-    temp_dir = tempfile.mkdtemp()
-
-    for f in files:
-        raw_url = f.get("raw_url")
-        filename = f.get("filename")
-
-        if not raw_url or not filename:
-            continue
-
-        raw_response = requests.get(raw_url, headers=headers, timeout=15)
-        if raw_response.status_code != 200:
-            continue
-
-        file_path = os.path.join(temp_dir, filename)
-        os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-        with open(file_path, "w", encoding="utf-8") as file:
-            file.write(raw_response.text)
-
-    return scan_repository(temp_dir)
+    except Exception as e:
+        print(f"CRITICAL ERROR: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))

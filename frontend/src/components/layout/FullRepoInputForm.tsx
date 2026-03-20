@@ -3,15 +3,8 @@
 import { useState, useEffect } from "react";
 import ResultsDashboard from "./ResultsDashboard";
 import { 
-  Lock, 
-  Cpu, 
-  Globe, 
-  Zap, 
-  AlertTriangle,
-  Loader2,
-  Database,
-  ArrowRight,
-  Fingerprint
+  Lock, Cpu, Globe, Zap, AlertTriangle,
+  Loader2, Database, ArrowRight, Fingerprint
 } from "lucide-react";
 
 export default function FullRepoInputForm() {
@@ -53,9 +46,36 @@ export default function FullRepoInputForm() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ repo_url: repoUrl }),
       });
+      
       if (!response.ok) throw new Error("Analysis engine failed to process this repository.");
-      const data = await response.json();
-      setResult(data);
+      
+      const rawData = await response.json();
+
+      const normalizedData = {
+        status: "success",
+        total_files_found: rawData.scan_results?.total_files_found || 0,
+        total_files_scanned: rawData.scan_results?.total_files_scanned || 0,
+        issues: [
+          ...(rawData.semgrep?.results || []).map((r: any) => ({
+            file: r.path,
+            line: r.start?.line,
+            severity: r.extra?.severity || "MEDIUM",
+            message: r.extra?.message || "Potential vulnerability detected",
+            tool: "Semgrep",
+            snippet: r.extra?.lines,
+            risk: "Static analysis detected a code pattern that matches known vulnerability signatures.",
+            suggestion: "Review the logic and ensure proper input sanitization or access control."
+          })),
+          ...(rawData.scan_results?.issues || []).map((issue: any) => ({
+            ...issue,
+            file: issue.file || "Unknown",
+            severity: issue.severity || issue.risk || "MEDIUM",
+            tool: issue.tool || "Security-Scanner"
+          }))
+        ]
+      };
+
+      setResult(normalizedData);
     } catch (err: any) {
       setError(err.message || "An error occurred");
     } finally {
@@ -67,8 +87,6 @@ export default function FullRepoInputForm() {
     <div className="max-w-7xl mx-auto px-6 py-20">
       {!result ? (
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-16 items-center">
-          
-          {/* LEFT: AUDIT CAPABILITIES PANEL */}
           <div className="lg:col-span-2 space-y-10">
             <div className="space-y-6">
               <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-50 text-indigo-600 rounded-full text-[10px] font-black uppercase tracking-[0.2em]">
@@ -101,7 +119,6 @@ export default function FullRepoInputForm() {
             </div>
           </div>
 
-          {/* RIGHT: INPUT ACTION CARD */}
           <div className="lg:col-span-3">
             <div className="bg-white rounded-[3rem] border border-slate-100 shadow-[0_40px_100px_-20px_rgba(0,0,0,0.1)] p-10 md:p-16 relative overflow-hidden group">
               <div className="absolute -top-24 -right-24 w-64 h-64 bg-indigo-100/40 rounded-full blur-3xl transition-all group-hover:bg-indigo-200/40 duration-700" />
@@ -166,9 +183,9 @@ export default function FullRepoInputForm() {
             </div>
             <button 
               onClick={() => setResult(null)} 
-              className="px-8 py-4 bg-white/10 hover:bg-white/20 text-white text-sm font-bold rounded-2xl transition-all border border-white/10 backdrop-blur-md flex items-center gap-2"
+              className="px-8 py-4 bg-slate-900 hover:bg-slate-800 text-white text-sm font-bold rounded-2xl transition-all flex items-center gap-2"
             >
-              <Zap size={20} className="group-hover:text-indigo-600 transition-colors" /> New Audit
+              <Zap size={20} className="text-amber-400" /> New Audit
             </button>
           </div>
           <ResultsDashboard data={result} />
